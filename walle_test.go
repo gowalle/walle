@@ -31,11 +31,7 @@ func TestNew(t *testing.T) {
 		t.Fatal("Expected RootCmd to be initialized, got nil")
 	}
 
-	if app.isDev != false {
-		t.Fatal("Expected isDev to be true, got false")
-	}
-
-	if app.dataDir != "data" {
-		t.Fatalf("Expected app.dataDir %q, got %q", "data", app.dataDir)
+	if app.DataDir() != "data" {
+		t.Fatalf("Expected app.dataDir %q, got %q", "data", app.DataDir())
 	}
 }

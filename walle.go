@@ -1,123 +1,129 @@
 package walle
 
 import (
-	"github.com/fatih/color"
-	"github.com/spf13/cobra"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/fatih/color"
+	"github.com/gowalle/walle/app"
+	"github.com/spf13/cobra"
 )
 
-// Version of Walle.
 var Version = "(unknown)"
 
-// App defines the interface for an application.
-type App interface {
-	// Logger returns the active app logger.
-	Logger() *slog.Logger
+// appWrapper is a wrapper for app.App
+type appWrapper struct {
+	app.App
 }
 
-type BaseApp struct {
-	isDev   bool
-	dataDir string
+// Walle defines a Walle app launcher.
+type Walle struct {
+	*appWrapper
 
-	// internals
-	logger *slog.Logger
+	devFlag     bool
+	dataDirFlag string
 
-	// command
+	// RootCmd is the main command for walle.
 	RootCmd *cobra.Command
 }
 
+// Config is the app initialization configuration.
 type Config struct {
-	IsDev   bool
-	DataDir string
+	DefaultDev     bool
+	DefaultDataDir string
 }
 
-var _ App = (*BaseApp)(nil)
-
-// New creates a new BaseApp.
-func New() *BaseApp {
+// New creates a new Walle instance with the default configuration.
+func New() *Walle {
 	_, isUsingGoRun := inspectRuntime()
-	return NewWithConfig(Config{IsDev: isUsingGoRun})
+
+	return NewWithConfig(Config{
+		DefaultDev: isUsingGoRun,
+	})
 }
 
-// NewWithConfig creates a new BaseApp with the given config.
-func NewWithConfig(config Config) *BaseApp {
-	if config.DataDir == "" {
+// NewWithConfig creates a new Walle instance with the specified configuration.
+func NewWithConfig(config Config) *Walle {
+	if config.DefaultDataDir == "" {
 		baseDir, _ := inspectRuntime()
-		config.DataDir = filepath.Join(baseDir, "data")
+		config.DefaultDataDir = filepath.Join(baseDir, "data")
 	}
-	app := &BaseApp{
+
+	w := &Walle{
 		RootCmd: &cobra.Command{
 			Use:     filepath.Base(os.Args[0]),
 			Short:   "Walle CLI",
 			Version: Version,
 			FParseErrWhitelist: cobra.FParseErrWhitelist{
-				UnknownFlags: false,
+				UnknownFlags: true,
 			},
+			// no need to provide the default cobra completion command
 			CompletionOptions: cobra.CompletionOptions{
 				DisableDefaultCmd: true,
 			},
 		},
+		devFlag:     config.DefaultDev,
+		dataDirFlag: config.DefaultDataDir,
 	}
 
 	// replace with a colored stderr writer
-	app.RootCmd.SetErr(newErrWriter())
+	w.RootCmd.SetErr(newErrWriter())
 
 	// parse base flags
 	// (errors are ignored, since the full flags parsing happens on Execute())
-	err := app.eagerParseFlags(&config)
-	if err != nil {
-		panic(err)
-	}
+	w.eagerParseFlags(&config)
+
+	// initialize the app instance
+	w.appWrapper = &appWrapper{app.NewBaseApp(app.BaseAppConfig{
+		IsDev:   w.devFlag,
+		DataDir: w.dataDirFlag,
+	})}
 
 	// hide the default help command (allow only `--help` flag)
-	app.RootCmd.SetHelpCommand(&cobra.Command{Hidden: true})
+	w.RootCmd.SetHelpCommand(&cobra.Command{Hidden: true})
 
-	return app
+	return w
+}
+
+// eagerParseFlags parses the global app flags before calling pb.RootCmd.Execute().
+// so we can have all Walle flags ready for use on initialization.
+func (w *Walle) eagerParseFlags(config *Config) error {
+	w.RootCmd.PersistentFlags().StringVar(
+		&w.dataDirFlag,
+		"dir",
+		config.DefaultDataDir,
+		"the Walle data directory",
+	)
+
+	w.RootCmd.PersistentFlags().BoolVar(
+		&w.devFlag,
+		"dev",
+		config.DefaultDev,
+		"enable dev mode, aka. printing logs and sql statements to the console",
+	)
+
+	return w.RootCmd.ParseFlags(os.Args[1:])
 }
 
 // Start starts the application, aka. registers the default system
 // commands (serve, migrate, version) and executes pb.RootCmd.
-func (app *BaseApp) Start() error {
-	// TODO register inner commands
-	return app.Execute()
+func (w *Walle) Start() error {
+	// register system commands
+	// w.RootCmd.AddCommand(cmd.NewAdminCommand(pb))
+	// w.RootCmd.AddCommand(cmd.NewServeCommand(pb, !pb.hideStartBanner))
+
+	return w.Execute()
 }
 
 // Execute initializes the application (if not already) and executes
-func (app *BaseApp) Execute() error {
-	// TODO
+// the pb.RootCmd with graceful shutdown support.
+//
+// This method differs from pb.Start() by not registering the default
+// system commands!
+func (w *Walle) Execute() error {
 	return nil
-}
-
-// Logger returns the active app logger.
-func (app *BaseApp) Logger() *slog.Logger {
-	if app.logger == nil {
-		return slog.Default()
-	}
-	return app.logger
-}
-
-// eagerParseFlags parses the global app flags before calling pb.RootCmd.Execute().
-// so we can have all PocketBase flags ready for use on initialization.
-func (app *BaseApp) eagerParseFlags(config *Config) error {
-	app.RootCmd.PersistentFlags().StringVar(
-		&app.dataDir,
-		"dir",
-		config.DataDir,
-		"the app data directory",
-	)
-
-	app.RootCmd.PersistentFlags().BoolVar(
-		&app.isDev,
-		"dev",
-		config.IsDev,
-		"enable dev mode, aka. printing logs and sql statements to the console",
-	)
-
-	return app.RootCmd.ParseFlags(os.Args[1:])
 }
 
 // inspectRuntime tries to find the base executable directory and how it was run.
@@ -134,7 +140,7 @@ func inspectRuntime() (baseDir string, withGoRun bool) {
 	return
 }
 
-// newErrWriter returns a red colored stderr writer.
+// newErrWriter returns a red colored stderr writter.
 func newErrWriter() *coloredWriter {
 	return &coloredWriter{
 		w: os.Stderr,
@@ -142,7 +148,7 @@ func newErrWriter() *coloredWriter {
 	}
 }
 
-// coloredWriter is a small wrapper struct to construct a [color.Color] writer.
+// coloredWriter is a small wrapper struct to construct a [color.Color] writter.
 type coloredWriter struct {
 	w io.Writer
 	c *color.Color
