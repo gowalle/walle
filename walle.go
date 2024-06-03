@@ -8,6 +8,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/gowalle/walle/app"
+	"github.com/gowalle/walle/cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -111,8 +112,7 @@ func (w *Walle) eagerParseFlags(config *Config) error {
 // commands (serve, migrate, version) and executes pb.RootCmd.
 func (w *Walle) Start() error {
 	// register system commands
-	// w.RootCmd.AddCommand(cmd.NewAdminCommand(pb))
-	// w.RootCmd.AddCommand(cmd.NewServeCommand(pb, !pb.hideStartBanner))
+	w.RootCmd.AddCommand(cmd.NewServeCommand(w))
 
 	return w.Execute()
 }
