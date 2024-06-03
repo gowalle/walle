@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"errors"
+	"net/http"
+
+	"github.com/gowalle/walle/api"
 	"github.com/gowalle/walle/app"
 	"github.com/spf13/cobra"
 )
@@ -32,8 +36,19 @@ func NewServeCommand(app app.App) *cobra.Command {
 					httpAddr = "127.0.0.1:8090"
 				}
 			}
-			// TODO: add support for gRPC/HTTP
-			return nil
+
+			_, err := api.Serve(app, api.ServeConfig{
+				HttpAddr:           httpAddr,
+				HttpsAddr:          httpsAddr,
+				AllowedOrigins:     allowedOrigins,
+				CertificateDomains: args,
+			})
+
+			if errors.Is(err, http.ErrServerClosed) {
+				return nil
+			}
+
+			return err
 		},
 	}
 
